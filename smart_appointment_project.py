@@ -1,6 +1,3 @@
-# Smart Appointment Scheduling System
-# Python + Tkinter + MySQL
-
 import tkinter as tk
 from tkinter import ttk, messagebox
 import mysql.connector
@@ -20,7 +17,7 @@ class LoginPage:
     def __init__(self, root):
         self.root = root
         self.root.title("Login")
-        self.root.state("zoomed")   # FULL SCREEN FIX
+        self.root.state("zoomed") 
 
         self.username = tk.StringVar()
         self.password = tk.StringVar()
@@ -48,7 +45,6 @@ class LoginPage:
                   bg="green", fg="white",
                   command=self.check_login).grid(row=2, columnspan=2, pady=10)
 
-        # ✅ EXIT BUTTON ADDED
         tk.Button(frame, text="Exit", width=12,
                   bg="red", fg="white",
                   command=self.root.destroy).pack(pady=10)
@@ -56,9 +52,9 @@ class LoginPage:
     def check_login(self):
         if self.username.get() == "admin" and self.password.get() == "admin":
             self.root.destroy()
-            root = tk.Tk()
-            AppointmentApp(root)
-            root.mainloop()
+            new_root = tk.Tk()
+            AppointmentApp(new_root)
+            new_root.mainloop()
         else:
             messagebox.showerror("Error", "Invalid Login")
 
@@ -67,7 +63,7 @@ class AppointmentApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Smart Appointment Scheduling System")
-        self.root.state("zoomed")   # FULL SCREEN FIX
+        self.root.state("zoomed")
 
         # Variables
         self.client_name = tk.StringVar()
@@ -103,9 +99,6 @@ class AppointmentApp:
 
         # -------- LEFT FORM --------
         labels = ["Client Name","Contact","Email","Service","Date","Time","Status","Notes"]
-        vars_ = [self.client_name,self.contact,self.email,
-                 self.service,self.date,None,self.status,self.notes]
-
         for i, lbl in enumerate(labels):
             tk.Label(left, text=lbl).grid(row=i, column=0, padx=10, pady=6, sticky="w")
 
@@ -117,7 +110,8 @@ class AppointmentApp:
                      values=("Consultation","Coding","Design"),
                      state="readonly").grid(row=3, column=1)
 
-        DateEntry(left, textvariable=self.date).grid(row=4, column=1)
+        # FIXED: Added date_pattern='y-mm-dd' to match MySQL format
+        DateEntry(left, textvariable=self.date, date_pattern='y-mm-dd').grid(row=4, column=1)
 
         tf = tk.Frame(left)
         tf.grid(row=5, column=1)
@@ -162,29 +156,43 @@ class AppointmentApp:
         return f"{self.hour.get()}:{self.minute.get()}"
 
     def add_record(self):
-        con = db_connection(); cur = con.cursor()
-        cur.execute("""
-        INSERT INTO appointments
-        (client_name,contact,email,service_type,app_date,app_time,status,notes)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-        """, (
-            self.client_name.get(), self.contact.get(), self.email.get(),
-            self.service.get(), self.date.get(),
-            self.get_time(), self.status.get(), self.notes.get()
-        ))
-        con.commit(); con.close()
-        self.fetch_data(); self.clear_fields()
+        if self.client_name.get() == "":
+            messagebox.showwarning("Warning", "Client Name is required")
+            return
+            
+        try:
+            con = db_connection(); cur = con.cursor()
+            cur.execute("""
+            INSERT INTO appointments
+            (client_name,contact,email,service_type,app_date,app_time,status,notes)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+            """, (
+                self.client_name.get(), self.contact.get(), self.email.get(),
+                self.service.get(), self.date.get(),
+                self.get_time(), self.status.get(), self.notes.get()
+            ))
+            con.commit(); con.close()
+            messagebox.showinfo("Success", "Appointment Added Successfully")
+            self.fetch_data(); self.clear_fields()
+        except mysql.connector.Error as err:
+            messagebox.showerror("Database Error", f"Error: {err}")
 
     def fetch_data(self):
-        con = db_connection(); cur = con.cursor()
-        cur.execute("SELECT * FROM appointments")
-        self.table.delete(*self.table.get_children())
-        for r in cur.fetchall():
-            self.table.insert("", tk.END, values=r)
-        con.close()
+        try:
+            con = db_connection(); cur = con.cursor()
+            cur.execute("SELECT * FROM appointments")
+            rows = cur.fetchall()
+            self.table.delete(*self.table.get_children())
+            for r in rows:
+                self.table.insert("", tk.END, values=r)
+            con.close()
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to fetch data: {e}")
 
     def get_cursor(self, e):
-        row = self.table.item(self.table.focus())['values']
+        cursor_row = self.table.focus()
+        contents = self.table.item(cursor_row)
+        row = contents['values']
         if row:
             self.selected_id = row[0]
             self.client_name.set(row[1])
@@ -192,32 +200,54 @@ class AppointmentApp:
             self.email.set(row[3])
             self.service.set(row[4])
             self.date.set(row[5])
-            h,m = row[6].split(":")
-            self.hour.set(h); self.minute.set(m)
+            
+            # Handling time split safely
+            try:
+                time_val = str(row[6])
+                if ":" in time_val:
+                    h, m = time_val.split(":")[:2]
+                    self.hour.set(h)
+                    self.minute.set(m)
+            except:
+                pass
+                
             self.status.set(row[7])
             self.notes.set(row[8])
 
     def update_record(self):
-        con = db_connection(); cur = con.cursor()
-        cur.execute("""
-        UPDATE appointments SET
-        client_name=%s,contact=%s,email=%s,service_type=%s,
-        app_date=%s,app_time=%s,status=%s,notes=%s
-        WHERE id=%s
-        """, (
-            self.client_name.get(), self.contact.get(), self.email.get(),
-            self.service.get(), self.date.get(),
-            self.get_time(), self.status.get(), self.notes.get(),
-            self.selected_id
-        ))
-        con.commit(); con.close()
-        self.fetch_data()
+        if self.selected_id is None:
+            messagebox.showwarning("Warning", "Select a record to update")
+            return
+            
+        try:
+            con = db_connection(); cur = con.cursor()
+            cur.execute("""
+            UPDATE appointments SET
+            client_name=%s,contact=%s,email=%s,service_type=%s,
+            app_date=%s,app_time=%s,status=%s,notes=%s
+            WHERE id=%s
+            """, (
+                self.client_name.get(), self.contact.get(), self.email.get(),
+                self.service.get(), self.date.get(),
+                self.get_time(), self.status.get(), self.notes.get(),
+                self.selected_id
+            ))
+            con.commit(); con.close()
+            messagebox.showinfo("Success", "Record Updated")
+            self.fetch_data()
+        except mysql.connector.Error as err:
+            messagebox.showerror("Database Error", f"Error: {err}")
 
     def delete_record(self):
-        con = db_connection(); cur = con.cursor()
-        cur.execute("DELETE FROM appointments WHERE id=%s",(self.selected_id,))
-        con.commit(); con.close()
-        self.fetch_data(); self.clear_fields()
+        if self.selected_id is None:
+            messagebox.showwarning("Warning", "Select a record to delete")
+            return
+            
+        if messagebox.askyesno("Confirm", "Are you sure you want to delete this?"):
+            con = db_connection(); cur = con.cursor()
+            cur.execute("DELETE FROM appointments WHERE id=%s",(self.selected_id,))
+            con.commit(); con.close()
+            self.fetch_data(); self.clear_fields()
 
     def search_data(self):
         key = self.search.get()
@@ -225,7 +255,7 @@ class AppointmentApp:
         cur.execute("""
         SELECT * FROM appointments WHERE
         client_name LIKE %s OR contact LIKE %s OR email LIKE %s
-        """,(f"%{key}%",)*3)
+        """,(f"%{key}%", f"%{key}%", f"%{key}%"))
         self.table.delete(*self.table.get_children())
         for r in cur.fetchall():
             self.table.insert("", tk.END, values=r)
@@ -235,6 +265,7 @@ class AppointmentApp:
         self.client_name.set(""); self.contact.set("")
         self.email.set(""); self.service.set("")
         self.status.set(""); self.notes.set("")
+        self.hour.set("09"); self.minute.set("00")
         self.selected_id = None
 
 # ================= RUN =================
